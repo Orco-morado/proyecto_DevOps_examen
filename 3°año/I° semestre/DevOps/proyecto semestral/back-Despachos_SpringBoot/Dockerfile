@@ -1,0 +1,3 @@
+#multi-stage
+
+FROM maven:
