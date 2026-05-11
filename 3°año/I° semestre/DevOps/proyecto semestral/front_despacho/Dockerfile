@@ -29,4 +29,4 @@ USER nginx
 # Se utiliza el puerto 8080 en lugar del 80 por defecto esto es porque el usuario de nginx
 # no tiene permisos para abrir puertos inferiores al 1024 sin ser root
 # porlotanto al establecer el puerto 8080 se asegura que nginx pueda usarlo sin problemas
-EXPOSE 8080
+EXPOSE 8081

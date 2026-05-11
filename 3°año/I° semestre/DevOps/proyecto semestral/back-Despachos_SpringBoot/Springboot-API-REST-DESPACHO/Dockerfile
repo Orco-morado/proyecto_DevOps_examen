@@ -7,7 +7,6 @@ COPY pom.xml .
 COPY src ./src
 RUN mvn clean package -DskipTests
 
-#la etapa anterior esta por morir
 FROM eclipse-temurin:21-jdk
 WORKDIR /app
 #creo el grupo y el usuario para ejecutar la aplicacion con un usuario no root
