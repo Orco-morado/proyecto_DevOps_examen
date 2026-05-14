@@ -1,0 +1,15 @@
+### Probar si el servicio de despachos responde (GET)
+GET http://localhost:8081/despachos
+
+### Si tienes un método para buscar por ID
+GET http://localhost:8081/despachos/1
+
+### Probar un envío de datos (POST)
+POST http://localhost:8081/despachos
+Content-Type: application/json
+
+{
+    "id": 1,
+    "descripcion": "Pedido de prueba",
+    "estado": "PENDIENTE"
+}

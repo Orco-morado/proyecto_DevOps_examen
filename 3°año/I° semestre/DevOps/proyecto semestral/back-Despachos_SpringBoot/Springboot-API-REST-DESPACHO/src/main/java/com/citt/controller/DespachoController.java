@@ -14,9 +14,9 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import java.net.URI;
 import java.util.List;
 
-@CrossOrigin(origins = "*")
+@CrossOrigin(origins = "http://localhost:5173")
 @RestController
-@RequestMapping("api/v1/despachos")
+@RequestMapping("/api/v1/despachos")
 @Tag(name = "Despacho", description = "Controlador para gestionar despachos")
 public class DespachoController {
 

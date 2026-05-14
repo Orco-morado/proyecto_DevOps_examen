@@ -1,37 +1,44 @@
 services:
   mysql:
+    image: mysql:8.0.35 # ¡Añadido! Es crucial definir la imagen
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE}
-      ports:
-        - "3306:3306"
-      volumes:
-        - db_data:/var/lib/mysql # Agrega un volumen para persistencia de datos
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 10s
       timeout: 5s
       retries: 5
+
   backend_despacho:
     build: ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
     ports:
-      - "8080:8080"
+      - "8080:8085" # Mapea el 8080 de tu PC al 8085 interno (definido en application.properties)
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}
-      SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      # Usando las variables exactas que definiste en tu application.properties
+      DB_ENDPOINT: mysql
+      DB_PORT: 3306
+      DB_NAME: ${MYSQL_DATABASE}
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
     depends_on:
       mysql:
         condition: service_healthy
 
   backend_venta:
-    build: .back-Ventas_SpringBoot/Springboot-API-REST-VENTA
+    build: ./back-Ventas_SpringBoot/Springboot-API-REST-VENTA # ¡Corregida la ruta!
     ports:
-      - "8081:8080"
+      - "8081:8084" # Ajusta este puerto interno según el application.properties de Ventas
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}
-      SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      DB_ENDPOINT: mysql
+      DB_PORT: 3306
+      DB_NAME: ${MYSQL_DATABASE}
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
     depends_on:
       mysql:
         condition: service_healthy
@@ -39,10 +46,10 @@ services:
   frontend:
     build: ./front_despacho
     ports:
-      - "3000:3000"
+      - "5173:5173" # Cambiado a 5173 por defecto en Vite (ajusta si configuras Vite en 3000)
     depends_on:
       - backend_despacho
       - backend_venta
 
 volumes:
-  db_data: # Declara el volumen para la base de datos
+  db_data:
