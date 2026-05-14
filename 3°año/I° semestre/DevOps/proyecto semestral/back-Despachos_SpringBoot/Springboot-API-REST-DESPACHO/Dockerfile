@@ -11,8 +11,12 @@ COPY pom.xml .
 COPY src ./src
 RUN mvn clean package -DskipTests
 
+<<<<<<< HEAD
 #la etapa anterior esta por morir
 FROM eclipse-temurin:17-jdk
+=======
+FROM eclipse-temurin:21-jdk
+>>>>>>> f061440a9feba86e0f14d4f089f2666412ec53d5
 WORKDIR /app
 #creo el grupo y el usuario para ejecutar la aplicacion con un usuario no root
 RUN groupadd -r devopsgroupback && useradd -r -g devopsgroupback devopsusuariobackdespacho1

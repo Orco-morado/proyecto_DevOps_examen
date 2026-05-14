@@ -17,5 +17,9 @@ COPY --from=builder /build/target/*.jar app.jar
 RUN chown devopsusuariobackventa1:devopsgroupback app.jar
 USER devopsusuariobackventa1
 
+<<<<<<< HEAD
 EXPOSE 8084
+=======
+EXPOSE 8083
+>>>>>>> f061440a9feba86e0f14d4f089f2666412ec53d5
 ENTRYPOINT ["java","-jar","app.jar"]
