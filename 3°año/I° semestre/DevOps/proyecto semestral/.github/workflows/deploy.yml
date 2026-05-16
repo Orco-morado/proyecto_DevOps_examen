@@ -1,0 +1,73 @@
+name: Pipeline CI/CD Ecosistema Completo
+
+# 1. El trigger: Se activa al hacer push en la rama de despliegue
+on:
+  push:
+    branches:
+      - deploy
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 2. Descargar el código fuente al servidor de Actions
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      # 3. Autenticarse de forma segura en AWS usando los secretos blindados
+      - name: Configurar credenciales de AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      # 4. Iniciar sesión en Docker Hub
+      - name: Login en Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      # 5. Compilar y Subir Backend de VENTAS
+      - name: Build y Push - Backend Ventas
+        uses: docker/build-push-action@v5
+        with:
+          # Verificado: Ruta exacta de tu microservicio de Ventas
+          context: ./back-Ventas_SpringBoot/Springboot-API-REST-VENTA
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/backend-ventas:latest
+
+      # 6. Compilar y Subir Backend de DESPACHOS
+      - name: Build y Push - Backend Despachos
+        uses: docker/build-push-action@v5
+        with:
+          context: ./back-Despachos
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/backend-despachos:latest
+
+      # 7. Compilar y Subir Frontend REACT (Vite)
+      - name: Build y Push - Frontend React
+        uses: docker/build-push-action@v5
+        with:
+          context: ./front_despacho
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/frontend-despacho:latest
+
+      # 8. Conexión segura SSH a AWS EC2 para actualizar toda la arquitectura
+      - name: Deploy en AWS EC2
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            # Entrar a la carpeta de infraestructura en tu máquina virtual
+            cd /home/ubuntu/infra
+            
+            # Descargar las versiones más recientes de todas las imágenes compiladas
+            docker compose pull
+            
+            # Levantar y actualizar los contenedores en segundo plano de forma limpia
+            docker compose up -d --remove-orphans

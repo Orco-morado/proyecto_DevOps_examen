@@ -7,8 +7,11 @@ export const TableDespachos = () => {
   const [despachos, setDespachos] = useState([]);
 
   const despacho = async () => {
+    // Usamos la variable de entorno de Vite
+    const apiUrl = import.meta.env.VITE_API_DESPACHOS_URL || 'http://localhost:8085';
+
     await axios
-      .get("http://192.168.3.20/api/v1/despachos", {
+      .get(`${apiUrl}/api/v1/despachos`, {
         headers:{
               'Content-Type': 'application/json',
               'Accept': 'application/json'

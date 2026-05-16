@@ -7,34 +7,49 @@ export const FormCierreDespacho = ({ despacho, onClose }) => {
 
   const onSubmit = async (data) => {
     console.log("onSubmit ejecutado");
+    
+    // Usamos la variable de entorno de Vite o el fallback local
+    const apiUrl = import.meta.env.VITE_API_DESPACHOS_URL || 'http://localhost:8085';
+
     const jsonData = {
       intento: data.intento,
       despachado: data.despachado,
     };
 
-    console.log("Datos del formulario:", jsonData);
+    console.log("Datos del formulario a enviar:", jsonData);
 
     try {
+      // Usamos template strings para inyectar la URL y el ID
       await axios.put(
-        `http://192.168.320/api/v1/despachos/${despacho.idDespacho}`,
+        `${apiUrl}/api/v1/despachos/${despacho.idDespacho}`,
         jsonData,
         {
-          headers:{
+          headers: {
             'Content-Type': 'application/json',
             'Accept': 'application/json'
-      }
+          }
         }
       );
-      Swal.fire({
+
+      await Swal.fire({
         title: "Despacho modificado 🛻!",
         text: "El despacho ha sido modificado exitosamente",
         icon: "success",
         confirmButtonText: "Aceptar",
       });
+      
+      // Cerramos el modal solo si la petición fue exitosa
+      onClose();
+
     } catch (error) {
       console.error("Error en la solicitud:", error);
+      Swal.fire({
+        title: "Error al actualizar",
+        text: "No se pudo conectar con el servidor de despachos",
+        icon: "error",
+        confirmButtonText: "Reintentar",
+      });
     }
-    onClose();
   };
 
   return (
@@ -46,88 +61,94 @@ export const FormCierreDespacho = ({ despacho, onClose }) => {
         <div className="mx-auto text-3xl font-bold mb-10 text-teal-600">
           Editar y cierre de despacho
         </div>
+        
         <div className="mb-5">
           <label className="block font-bold mb-2">ID despacho</label>
           <input
             disabled={true}
             type="text"
-            placeholder="Ingresa fecha de despacho"
-            className="border border-gray-300 rounded-lg block w-full p-1 text-slate-400"
+            className="border border-gray-300 rounded-lg block w-full p-1 text-slate-400 bg-gray-50"
             value={despacho.idDespacho}
           />
         </div>
+
         <div className="mb-5">
           <label className="block font-bold mb-2">Fecha despacho</label>
           <input
             type="date"
-            placeholder="Elige patente de camión"
-            className="border border-gray-300 rounded-lg block w-full text-slate-400 p-1"
+            className="border border-gray-300 rounded-lg block w-full text-slate-400 p-1 bg-gray-50"
             value={despacho.fechaDespacho}
             disabled={true}
           />
         </div>
+
         <div className="mb-5">
           <label className="block font-bold mb-2">Patente Camión</label>
           <input
             type="text"
             disabled={true}
             value={despacho.patenteCamion}
-            className="border border-gray-300 rounded-lg block w-full text-slate-400 p-1"
+            className="border border-gray-300 rounded-lg block w-full text-slate-400 p-1 bg-gray-50"
           />
         </div>
+
         <div className="mb-5">
           <label className="block font-bold mb-2">Intentos de entrega</label>
           <input
             type="number"
             defaultValue={despacho.intento}
-            className="border border-gray-300 rounded-lg block w-full  p-1"
+            className="border border-gray-300 rounded-lg block w-full p-1 focus:ring-teal-500 focus:border-teal-500"
             {...register("intento", { required: true })}
           />
         </div>
+
         <div className="mb-5">
-          <label className="block font-bold mb-2">Despacho entregado</label>
+          <label className="block font-bold mb-2">Estado del despacho</label>
           <select
-            defaultValue={false}
-            className="border border-gray-300 rounded-lg block w-full  p-1"
+            defaultValue={despacho.entregado}
+            className="border border-gray-300 rounded-lg block w-full p-1 focus:ring-teal-500 focus:border-teal-500"
             {...register("despachado", { required: true })}
           >
-            <option value={false}>Despacho abierto</option>
-            <option value={true}>Cerrar despacho</option>
+            <option value={false}>Despacho abierto (Pendiente)</option>
+            <option value={true}>Cerrar despacho (Entregado)</option>
           </select>
         </div>
+
         <div className="mb-5">
           <label className="block font-bold mb-2">ID Compra</label>
           <input
             type="text"
-            className="border border-gray-300 rounded-lg block w-full text-slate-400 p-1"
+            className="border border-gray-300 rounded-lg block w-full text-slate-400 p-1 bg-gray-50"
             disabled={true}
             value={despacho.idCompra}
           />
         </div>
+
         <div className="mb-5">
           <label className="block font-bold mb-2">Dirección Compra</label>
           <input
             type="text"
-            className="border border-gray-300 rounded-lg block w-full text-slate-400 p-1"
+            className="border border-gray-300 rounded-lg block w-full text-slate-400 p-1 bg-gray-50"
             disabled={true}
             value={despacho.direccionCompra}
           />
         </div>
-        <div className="mb-5">
+
+        <div className="mb-10">
           <label className="block font-bold mb-2">Valor Compra</label>
           <input
             type="text"
-            className="border border-gray-300 rounded-lg block w-full text-slate-400 p-1"
+            className="border border-gray-300 rounded-lg block w-full text-slate-400 p-1 bg-gray-50"
             disabled={true}
-            value={despacho.valorCompra}
+            value={`$${despacho.valorCompra}`}
           />
         </div>
 
         <button
-          className="py-6 px-14 rounded-lg bg-teal-600 text-white font-bold mb-14"
+          className="py-4 px-14 rounded-lg bg-teal-600 text-white font-bold mb-14 hover:bg-teal-700 transition-colors shadow-lg"
           type="submit"
         >
-          Modificar Despacho
+          Guardar Cambios
         </button>
       </form>
     </>

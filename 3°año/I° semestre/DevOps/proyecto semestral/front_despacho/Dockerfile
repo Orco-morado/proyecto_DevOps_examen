@@ -26,7 +26,7 @@ RUN chown -R nginx:nginx /usr/share/nginx/html && \
 USER nginx
 
 # 3. Exponer un puerto no privilegiado
-# Se utiliza el puerto 8080 en lugar del 80 por defecto esto es porque el usuario de nginx
+# Se utiliza el puerto 8081 en lugar del 80 por defecto esto es porque el usuario de nginx
 # no tiene permisos para abrir puertos inferiores al 1024 sin ser root
-# porlotanto al establecer el puerto 8080 se asegura que nginx pueda usarlo sin problemas
+# porlotanto al establecer el puerto 8081 se asegura que nginx pueda usarlo sin problemas
 EXPOSE 8081

@@ -9,7 +9,7 @@ COPY src ./src
 RUN mvn clean package -DskipTests
 
 
-FROM eclipse-temurin:17-jdk
+FROM eclipse-temurin:17-jre
 WORKDIR /app
 RUN groupadd -r devopsgroupback && useradd -r -g devopsgroupback devopsusuariobackventa1
 

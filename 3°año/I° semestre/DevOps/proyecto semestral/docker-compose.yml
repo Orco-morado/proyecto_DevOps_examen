@@ -46,7 +46,7 @@ services:
   frontend:
     build: ./front_despacho
     ports:
-      - "5173:5173" # Cambiado a 5173 por defecto en Vite (ajusta si configuras Vite en 3000)
+      - "5173:8081" # Mapeamos el puerto host 5173 al 8081 interno de Nginx
     depends_on:
       - backend_despacho
       - backend_venta
