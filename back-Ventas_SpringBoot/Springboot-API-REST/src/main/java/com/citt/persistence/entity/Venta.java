@@ -21,14 +21,18 @@ import java.time.LocalDate;
 @Builder
 public class Venta {
     @Id
-    @GeneratedValue(strategy = GenerationType.AUTO)
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long idVenta;
+    
     @NotBlank(message = "La dirección es obligatoria")
     private String direccionCompra;
+    
     private int valorCompra;
+    
     @NotNull(message = "Fecha de compra es obligatoria")
-    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)  // Especifica el formato de fecha
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)  
     private LocalDate fechaCompra;
+    
     @NotNull(message = "El campo de despacho debe ser proporcionado")
     @Builder.Default
     private Boolean despachoGenerado = false;

@@ -1,0 +1,21 @@
+# Pruebas para la API de Ventas
+POST http://localhost:8083/api/v1/ventas
+Content-Type: application/json
+
+{
+    "direccionCompra": "Av. Providencia 123",
+    "valorCompra": 25000,
+    "fechaCompra": "2026-05-15",
+    "despachoGenerado": false
+}
+
+
+POST http://localhost:8083/api/v1/ventas
+Content-Type: application/json
+
+{
+    "direccionCompra": "Calle Las Flores 456",
+    "valorCompra": 15500,
+    "fechaCompra": "2026-05-16",
+    "despachoGenerado": true
+}

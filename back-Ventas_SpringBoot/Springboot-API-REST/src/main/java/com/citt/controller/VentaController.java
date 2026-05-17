@@ -14,7 +14,7 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import java.net.URI;
 import java.util.List;
 
-@CrossOrigin(origins = "http://localhost:5173")
+@CrossOrigin(origins = "http://localhost:5173") 
 @RestController
 @RequestMapping("/api/v1/ventas")
 @Tag(name = "Venta", description = "Controlador para gestionar ventas")
@@ -26,13 +26,18 @@ public class VentaController {
     @Operation(summary = "Crear una nueva venta", description = "Crea una nueva venta en el sistema")
     @PostMapping
     public ResponseEntity<Venta> crearVenta(@Valid @RequestBody Venta venta){
+        //  PRIMERO guardamos en MySQL para que adquiera su ID autoincremental real
+        Venta ventaGuardada = ventaService.saveVenta(venta);
+        
+        //  DESPUÉS construimos la URL usando el ID generado que ya no es nulo
         URI location = ServletUriComponentsBuilder
                 .fromCurrentRequest()
                 .path("/{idVenta}")
-                .buildAndExpand(venta.getIdVenta())
+                .buildAndExpand(ventaGuardada.getIdVenta())
                 .toUri();
-        ventaService.saveVenta(venta);
-        return ResponseEntity.created(location).body(venta);
+        
+        //  Retornamos el estado 201 Created junto con la localización y el cuerpo guardado
+        return ResponseEntity.created(location).body(ventaGuardada);
     }
 
     @PutMapping("/{idVenta}")
@@ -52,15 +57,13 @@ public class VentaController {
     @Operation(summary = "Obtener una venta por ID", description = "Devuelve los detalles de una venta específica")
     public ResponseEntity<Venta> obtenerVenta(@PathVariable Long idVenta) throws VentaNotFoundException {
         Venta venta = ventaService.findById(idVenta);
-        return ResponseEntity.ok(venta); // Retornamos la venta encontrada con un estado 200 (OK)
+        return ResponseEntity.ok(venta); 
     }
 
     @DeleteMapping("/{idVenta}")
     @Operation(summary = "Eliminar una venta", description = "Elimina una venta del sistema")
     public ResponseEntity<Void> eliminarVenta(@PathVariable Long idVenta) throws VentaNotFoundException {
         ventaService.deleteVenta(idVenta);
-        return ResponseEntity.noContent().build(); // Respuesta 204 No Content si se elimina correctamente
+        return ResponseEntity.noContent().build(); 
     }
 }
-
-

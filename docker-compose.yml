@@ -33,7 +33,7 @@ services:
   backend_venta:
     build: ./back-Ventas_SpringBoot/Springboot-API-REST 
     ports:
-      - "8083:8080" # Ajusta este puerto interno según el application.properties de Ventas
+      - "8083:8084" # Ajusta este puerto interno según el application.properties de Ventas
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?allowPublicKeyRetrieval=true&useSSL=false 
       DB_ENDPOINT: mysql
