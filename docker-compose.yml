@@ -17,9 +17,10 @@ services:
   backend_despacho:
     build: ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
     ports:
-      - "8080:8085" # Mapea el 8080 de tu PC al 8085 interno (definido en application.properties)
+      - "8082:8085" # Mapea el 8082 de tu PC al 8085 interno el de properties
     environment:
       # Usando las variables exactas que definiste en tu application.properties
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?allowPublicKeyRetrieval=true&useSSL=false 
       DB_ENDPOINT: mysql
       DB_PORT: 3306
       DB_NAME: ${MYSQL_DATABASE}
@@ -30,10 +31,11 @@ services:
         condition: service_healthy
 
   backend_venta:
-    build: ./back-Ventas_SpringBoot/Springboot-API-REST-VENTA # ¡Corregida la ruta!
+    build: ./back-Ventas_SpringBoot/Springboot-API-REST 
     ports:
-      - "8081:8084" # Ajusta este puerto interno según el application.properties de Ventas
+      - "8083:8080" # Ajusta este puerto interno según el application.properties de Ventas
     environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?allowPublicKeyRetrieval=true&useSSL=false 
       DB_ENDPOINT: mysql
       DB_PORT: 3306
       DB_NAME: ${MYSQL_DATABASE}
