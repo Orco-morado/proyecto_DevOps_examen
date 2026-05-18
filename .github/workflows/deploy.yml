@@ -1,6 +1,5 @@
 name: Pipeline CI/CD Ecosistema Completo
 
-# 1. El trigger: Se activa al hacer push en la rama de despliegue
 on:
   push:
     branches:
@@ -11,63 +10,103 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 2. Descargar el código fuente al servidor de Actions
-      - name: Checkout del código
+      - name: 1. Checkout del código
         uses: actions/checkout@v4
 
-      # 3. Autenticarse de forma segura en AWS usando los secretos blindados
-      - name: Configurar credenciales de AWS
+      # CORRECCIÓN: Se agregó el Session Token obligatorio para AWS Academy
+      - name: 2. Configurar credenciales de AWS
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }} 
           aws-region: us-east-1
 
-      # 4. Iniciar sesión en Docker Hub
-      - name: Login en Docker Hub
-        uses: docker/login-action@v3
+      - name: 3. Configurar Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: 4. Terraform Init
+        run: terraform init
+
+      - name: 5. Terraform Apply (Crear Infraestructura)
+        id: tf-apply
+        run: |
+          terraform apply -auto-approve
+          echo "EC2_DYNAMIC_HOST=$(terraform output -raw instancia_ip_publica)" >> $GITHUB_ENV
+
+      - name: 6. Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+          
+      # CORRECCIÓN: Solo 1 login usando tus GitHub Secrets reales
+      - name: 7. Iniciar sesión en Docker Hub
+        uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # 5. Compilar y Subir Backend de VENTAS
-      - name: Build y Push - Backend Ventas
+      # CORRECCIÓN: Tags dinámicos con tu usuario
+      - name: 8. Build y Push - Backend Ventas
         uses: docker/build-push-action@v5
         with:
-          # Verificado: Ruta exacta de tu microservicio de Ventas
-          context: ./back-Ventas_SpringBoot/Springboot-API-REST-VENTA
+          context: ./back-Ventas_SpringBoot/Springboot-API-REST
           push: true
           tags: ${{ secrets.DOCKER_USERNAME }}/backend-ventas:latest
 
-      # 6. Compilar y Subir Backend de DESPACHOS
-      - name: Build y Push - Backend Despachos
+      - name: 9. Build y Push - Backend Despachos
         uses: docker/build-push-action@v5
         with:
-          context: ./back-Despachos
+          context: ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
           push: true
           tags: ${{ secrets.DOCKER_USERNAME }}/backend-despachos:latest
 
-      # 7. Compilar y Subir Frontend REACT (Vite)
-      - name: Build y Push - Frontend React
+      - name: 10. Build y Push - Frontend React
         uses: docker/build-push-action@v5
         with:
           context: ./front_despacho
           push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/frontend-despacho:latest
+          tags: ${{ secrets.DOCKER_USERNAME }}/frontend-depacho:latest
 
-      # 8. Conexión segura SSH a AWS EC2 para actualizar toda la arquitectura
-      - name: Deploy en AWS EC2
+      # CORRECCIÓN: Crear el archivo .env con las credenciales de la BD
+      - name: 11. Generar archivo .env
+        run: |
+          echo "MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }}" >> .env
+          echo "MYSQL_DB_DESPACHO=${{ secrets.MYSQL_DB_DESPACHO }}" >> .env
+          echo "MYSQL_USER=${{ secrets.MYSQL_USER }}" >> .env
+          echo "MYSQL_PASSWORD=${{ secrets.MYSQL_PASSWORD }}" >> .env
+          echo "SPRING_DESPACHO_URL=${{ secrets.SPRING_DESPACHO_URL }}" >> .env
+          echo "SPRING_DESPACHO_USER=${{ secrets.SPRING_DESPACHO_USER }}" >> .env
+          echo "SPRING_DESPACHO_PASS=${{ secrets.SPRING_DESPACHO_PASS }}" >> .env
+          echo "SPRING_VENTA_URL=${{ secrets.SPRING_VENTA_URL }}" >> .env
+          echo "SPRING_VENTA_USER=${{ secrets.SPRING_VENTA_USER }}" >> .env
+          echo "SPRING_VENTA_PASS=${{ secrets.SPRING_VENTA_PASS }}" >> .env
+          echo "REACT_APP_API_DESPACHO_URL=http://${{ env.EC2_DYNAMIC_HOST }}:8082" >> .env
+          echo "REACT_APP_API_VENTA_URL=http://${{ env.EC2_DYNAMIC_HOST }}:8083" >> .env
+
+      # CORRECCIÓN: Copiar archivos críticos (docker-compose y .env) al servidor vacío
+      - name: 12. Copiar archivos a EC2
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ env.EC2_DYNAMIC_HOST }}
+          username: "ubuntu"
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "docker-compose.yml,.env"
+          target: "/home/ubuntu/infra"
+          # Este paso asegura de que el EC2 deje de decir "connection refused" al inicio, pues le da tiempo a iniciar
+          timeout: 120s 
+
+      - name: 13. Deploy Final en AWS EC2
         uses: appleboy/ssh-action@master
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USERNAME }}
+          host: ${{ env.EC2_DYNAMIC_HOST }}
+          username: "ubuntu"
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            # Entrar a la carpeta de infraestructura en tu máquina virtual
             cd /home/ubuntu/infra
             
-            # Descargar las versiones más recientes de todas las imágenes compiladas
-            docker compose pull
+            # Descargar imágenes y levantar todo
+            sudo docker compose pull
+            sudo docker compose down
+            sudo docker compose up -d
             
-            # Levantar y actualizar los contenedores en segundo plano de forma limpia
-            docker compose up -d --remove-orphans
+            # Limpieza
+            sudo docker image prune -f

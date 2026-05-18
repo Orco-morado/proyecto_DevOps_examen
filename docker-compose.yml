@@ -1,57 +1,74 @@
+version: '3.8'
+
 services:
-  mysql:
-    image: mysql:8.0.35 # ¡Añadido! Es crucial definir la imagen
+  # --- BASE DE DATOS COMPARTIDA (Optimiza RAM en AWS) ---
+  db-sistema:
+    image: mysql:8.0
+    container_name: db-sistema
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      # Inicializa con la base de despacho por defecto
+      MYSQL_DATABASE: ${MYSQL_DB_DESPACHO}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
     ports:
       - "3306:3306"
     volumes:
-      - db_data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      - mysql_sistema_data:/var/lib/mysql
+      # Script opcional si necesitas inicializar la segunda base de datos automáticamente
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - sistema-network
+    restart: always
 
-  backend_despacho:
-    build: ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
+  # --- MICROSERVICIO: BACKEND DESPACHO ---
+  api-despacho:
+    image: tu_usuario_docker/api-despacho:latest # <- Reemplaza con tu usuario de DockerHub
+    container_name: api-despacho
     ports:
-      - "8082:8085" # Mapea el 8082 de tu PC al 8085 interno el de properties
+      - "8082:8085" # EXTERNO 8082 (Tu puerto) -> INTERNO 8085 (Tu application.properties)
     environment:
-      # Usando las variables exactas que definiste en tu application.properties
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?allowPublicKeyRetrieval=true&useSSL=false 
-      DB_ENDPOINT: mysql
-      DB_PORT: 3306
-      DB_NAME: ${MYSQL_DATABASE}
-      DB_USERNAME: root
-      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      SPRING_DATASOURCE_URL: ${SPRING_DESPACHO_URL}
+      SPRING_DATASOURCE_USERNAME: ${SPRING_DESPACHO_USER}
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DESPACHO_PASS}
     depends_on:
-      mysql:
-        condition: service_healthy
+      - db-sistema
+    networks:
+      - sistema-network
+    restart: always
 
-  backend_venta:
-    build: ./back-Ventas_SpringBoot/Springboot-API-REST 
+  # --- MICROSERVICIO: BACKEND VENTA ---
+  api-venta:
+    image: tu_usuario_docker/api-venta:latest # <- Reemplaza con tu usuario de DockerHub
+    container_name: api-venta
     ports:
-      - "8083:8084" # Ajusta este puerto interno según el application.properties de Ventas
+      - "8083:8084" # EXTERNO 8083 (Tu puerto) -> INTERNO 8084 (Tu application.properties)
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?allowPublicKeyRetrieval=true&useSSL=false 
-      DB_ENDPOINT: mysql
-      DB_PORT: 3306
-      DB_NAME: ${MYSQL_DATABASE}
-      DB_USERNAME: root
-      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      SPRING_DATASOURCE_URL: ${SPRING_VENTA_URL}
+      SPRING_DATASOURCE_USERNAME: ${SPRING_VENTA_USER}
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_VENTA_PASS}
     depends_on:
-      mysql:
-        condition: service_healthy
+      - db-sistema
+    networks:
+      - sistema-network
+    restart: always
 
-  frontend:
-    build: ./front_despacho
+  # --- FRONTEND (REACT APP) ---
+  frontend-app:
+    image: tu_usuario_docker/frontend-app:latest # <- Reemplaza con tu usuario de DockerHub
+    container_name: frontend-app
     ports:
-      - "5173:8081" # Mapeamos el puerto host 5173 al 8081 interno de Nginx
-    depends_on:
-      - backend_despacho
-      - backend_venta
+      - "8081:8081" # 8081 : 8081 (Exigido por el Nginx sin root)
+    environment:
+      - REACT_APP_API_DESPACHO_URL=${REACT_APP_API_DESPACHO_URL}
+      - REACT_APP_API_VENTA_URL=${REACT_APP_API_VENTA_URL}
+    networks:
+      - sistema-network
+    restart: always
 
 volumes:
-  db_data:
+  mysql_sistema_data: # Cumple con el criterio de persistencia de la rúbrica
+
+networks:
+  sistema-network:
+    driver: bridge

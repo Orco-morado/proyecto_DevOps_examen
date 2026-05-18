@@ -1,0 +1,29 @@
+name: X - Kill Switch (Destruir Infraestructura AWS)
+
+# trigger manual: crea un botón en la pestaña 'Actions' de GitHub
+on:
+  workflow_dispatch:
+
+jobs:
+  terraform-destroy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 1. Obtener el código fuente
+        uses: actions/checkout@v4
+
+      - name: 2. Configurar credenciales de AWS Academy
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }} # Obligatorio en AWS Academy
+          aws-region: us-east-1
+
+      - name: 3. Configurar Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: 4. Inicializar Terraform
+        run: terraform init
+
+      - name: 5. ¡MATAR TODO EN AWS
+        run: terraform destroy -auto-approve
