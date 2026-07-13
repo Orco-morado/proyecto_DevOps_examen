@@ -26,7 +26,17 @@ resource "aws_eks_cluster" "main" {
   name                        = local.cluster_name
   role_arn                    = data.aws_iam_role.lab_role.arn
   version                     = var.cluster_version
-  bootstrap_self_managed_addons = false}
+  bootstrap_self_managed_addons = false
+
+  vpc_config {
+    subnet_ids              = aws_subnet.public[*].id
+    security_group_ids      = [aws_security_group.cluster.id]
+    endpoint_public_access  = true
+    endpoint_private_access = false
+  }
+
+  tags = local.common_tags
+}
 
 resource "aws_eks_node_group" "main" {
   cluster_name    = aws_eks_cluster.main.name
