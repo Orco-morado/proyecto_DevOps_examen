@@ -23,9 +23,9 @@ resource "aws_security_group" "cluster" {
 }
 
 resource "aws_eks_cluster" "main" {
-  name                        = local.cluster_name
-  role_arn                    = data.aws_iam_role.lab_role.arn
-  version                     = var.cluster_version
+  name                          = local.cluster_name
+  role_arn                      = data.aws_iam_role.lab_role.arn
+  version                       = var.cluster_version
   bootstrap_self_managed_addons = false
 
   vpc_config {
@@ -62,19 +62,19 @@ resource "aws_eks_node_group" "main" {
 }
 
 resource "aws_eks_addon" "vpc_cni" {
-  cluster_name  = aws_eks_cluster.main.name
-  addon_name    = "vpc-cni"
-  depends_on    = [aws_eks_node_group.main]
+  cluster_name = aws_eks_cluster.main.name
+  addon_name   = "vpc-cni"
+  depends_on   = [aws_eks_node_group.main]
 }
 
 resource "aws_eks_addon" "kube_proxy" {
-  cluster_name  = aws_eks_cluster.main.name
-  addon_name    = "kube-proxy"
-  depends_on    = [aws_eks_node_group.main]
+  cluster_name = aws_eks_cluster.main.name
+  addon_name   = "kube-proxy"
+  depends_on   = [aws_eks_node_group.main]
 }
 
 resource "aws_eks_addon" "coredns" {
-  cluster_name  = aws_eks_cluster.main.name
-  addon_name    = "coredns"
-  depends_on    = [aws_eks_node_group.main]
+  cluster_name = aws_eks_cluster.main.name
+  addon_name   = "coredns"
+  depends_on   = [aws_eks_node_group.main]
 }
