@@ -1,4 +1,4 @@
-name: Deploy devopsVG — EKS
+name: Deploy devopsvg — EKS
 
 on:
   push:
@@ -12,17 +12,58 @@ concurrency:
 
 env:
   AWS_REGION: us-east-1
-  IMAGE_TAG: ${{ github.sha }}
+  EKS_CLUSTER_NAME: devopsvg-eks
+  K8S_NAMESPACE: devopsvg
 
 jobs:
-  build-push-deploy:
+  build:
+    name: Compilar aplicaciones
     runs-on: ubuntu-latest
-
     steps:
-      - name: 1. Checkout del codigo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: 2. Configurar credenciales de AWS
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Compilar Frontend
+        working-directory: front_despacho
+        run: npm ci && npm run build
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - name: Compilar Backend Ventas
+        working-directory: back-Ventas_SpringBoot/Springboot-API-REST
+        run: chmod +x mvnw && ./mvnw -B -DskipTests package
+
+      - name: Compilar Backend Despachos
+        working-directory: back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
+        run: chmod +x mvnw && ./mvnw -B -DskipTests package
+
+  docker-push:
+    name: Build & Push — ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: frontend
+            context: front_despacho
+            ecr_repo: devopsvg-frontend
+          - service: back-ventas
+            context: back-Ventas_SpringBoot/Springboot-API-REST
+            ecr_repo: devopsvg-back-ventas
+          - service: back-despachos
+            context: back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
+            ecr_repo: devopsvg-back-despachos
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar credenciales AWS
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -30,101 +71,96 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: 3. Configurar Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_wrapper: false
-
-      - name: 4. Configurar kubectl
-        uses: azure/setup-kubectl@v4
-
-      - name: 5. Restaurar estado Terraform
-        uses: actions/cache@v4
-        with:
-          path: |
-            infra/terraform/terraform.tfstate
-            infra/terraform/terraform.tfstate.backup
-          key: terraform-state-${{ github.ref_name }}-${{ github.run_id }}
-          restore-keys: |
-            terraform-state-${{ github.ref_name }}-
-
-      - name: 6. Terraform Init
-        working-directory: infra/terraform
-        run: terraform init
-
-      - name: 7. Limpiar add-on EBS CSI obsoleto del estado
-        working-directory: infra/terraform
-        run: |
-          if terraform state list 2>/dev/null | grep -q '^aws_eks_addon\.ebs_csi$'; then
-            terraform state rm aws_eks_addon.ebs_csi
-          fi
-
-      - name: 8. Terraform Apply EKS/ECR
-        working-directory: infra/terraform
-        run: terraform apply -auto-approve
-
-      - name: 9. Exportar outputs de Terraform
-        working-directory: infra/terraform
-        run: |
-          echo "CLUSTER_NAME=$(terraform output -raw cluster_name)" >> "$GITHUB_ENV"
-          echo "VPC_ID=$(terraform output -raw vpc_id)" >> "$GITHUB_ENV"
-          echo "FRONTEND_REPO=$(terraform output -raw frontend_repository_url)" >> "$GITHUB_ENV"
-          echo "BACKEND_DESPACHOS_REPO=$(terraform output -raw backend_despachos_repository_url)" >> "$GITHUB_ENV"
-          echo "BACKEND_VENTAS_REPO=$(terraform output -raw backend_ventas_repository_url)" >> "$GITHUB_ENV"
-
-      - name: 10. Login en Amazon ECR
+      - name: Login to Amazon ECR
+        id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: 11. Build y push backend despachos
-        run: |
-          docker build -t "$BACKEND_DESPACHOS_REPO:$IMAGE_TAG" -t "$BACKEND_DESPACHOS_REPO:latest" back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
-          docker push "$BACKEND_DESPACHOS_REPO:$IMAGE_TAG"
-          docker push "$BACKEND_DESPACHOS_REPO:latest"
+      - uses: docker/setup-buildx-action@v3
 
-      - name: 12. Build y push backend ventas
-        run: |
-          docker build -t "$BACKEND_VENTAS_REPO:$IMAGE_TAG" -t "$BACKEND_VENTAS_REPO:latest" back-Ventas_SpringBoot/Springboot-API-REST
-          docker push "$BACKEND_VENTAS_REPO:$IMAGE_TAG"
-          docker push "$BACKEND_VENTAS_REPO:latest"
+      - name: Build y push a ECR
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ matrix.ecr_repo }}:latest
+            ${{ steps.login-ecr.outputs.registry }}/${{ matrix.ecr_repo }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
-      - name: 13. Build y push frontend
-        run: |
-          docker build \
-            --build-arg VITE_API_DESPACHOS_URL="/api/v1/despachos" \
-            --build-arg VITE_API_VENTA_URL="/api/v1/ventas" \
-            -t "$FRONTEND_REPO:$IMAGE_TAG" \
-            -t "$FRONTEND_REPO:latest" \
-            front_despacho
-          docker push "$FRONTEND_REPO:$IMAGE_TAG"
-          docker push "$FRONTEND_REPO:latest"
+  deploy-eks:
+    name: Desplegar en EKS
+    runs-on: ubuntu-latest
+    needs: docker-push
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: 14. Configurar kubectl para EKS
-        run: aws eks update-kubeconfig --region "$AWS_REGION" --name "$CLUSTER_NAME"
+      - name: Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: 15. Namespace + Metrics Server + Secrets
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.32.0
+
+      - name: Conectar al cluster EKS
+        run: aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
+
+      - name: Namespace + Metrics Server + Secrets
         run: |
           kubectl apply -f infra/k8s/namespace/
           kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
           kubectl rollout status deployment/metrics-server -n kube-system --timeout=180s
           kubectl create secret generic devopsvg-db-secret \
-            -n devopsVG \
+            -n devopsvg \
             --from-literal=root-password='${{ secrets.MYSQL_ROOT_PASSWORD }}' \
             --from-literal=username='${{ secrets.MYSQL_USER }}' \
             --from-literal=password='${{ secrets.MYSQL_PASSWORD }}' \
-            --dry-run=client \
-            -o yaml | kubectl apply -f -
+            --dry-run=client -o yaml | kubectl apply -f -
 
-      - name: 16. Desplegar en EKS
+      - name: kubectl apply + rollout
         env:
           ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
-          IMAGE_TAG: ${{ env.IMAGE_TAG }}
+          IMAGE_TAG: ${{ github.sha }}
         run: |
           chmod +x scripts/deploy-k8s.sh
           ./scripts/deploy-k8s.sh
 
-      - name: 17. Validar despliegue
+      - name: Resumen del despliegue
+        run: |
+          echo "## Despliegue EKS" >> $GITHUB_STEP_SUMMARY
+          kubectl get pods,svc -n ${{ env.K8S_NAMESPACE }} >> $GITHUB_STEP_SUMMARY
+
+  validate:
+    name: Validar despliegue
+    runs-on: ubuntu-latest
+    needs: deploy-eks
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.32.0
+
+      - name: Conectar al cluster EKS
+        run: aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
+
+      - name: Validar servicios
         env:
-          K8S_NAMESPACE: devopsVG
+          K8S_NAMESPACE: ${{ env.K8S_NAMESPACE }}
         run: |
           chmod +x scripts/validate-deployment.sh
           ./scripts/validate-deployment.sh

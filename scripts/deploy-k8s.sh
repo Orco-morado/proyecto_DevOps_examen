@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Despliega la aplicacion devopsVG en EKS.
+# Despliega la aplicacion devopsvg en EKS.
 # Variables requeridas: ECR_REGISTRY, IMAGE_TAG
 # Variables opcionales: ECR_REPO_FRONTEND, ECR_REPO_VENTAS, ECR_REPO_DESPACHOS
 
 set -euo pipefail
 
-NAMESPACE="${K8S_NAMESPACE:-devopsVG}"
+NAMESPACE="${K8S_NAMESPACE:-devopsvg}"
 ECR_REGISTRY="${ECR_REGISTRY:?ECR_REGISTRY no definido}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 

@@ -7,7 +7,7 @@ variable "aws_region" {
 variable "project_name" {
   description = "Prefijo del nombre de proyecto para nombrar recursos"
   type        = string
-  default     = "devopsVG"
+  default     = "devopsvg"
 }
 
 variable "cluster_version" {

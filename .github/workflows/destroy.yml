@@ -48,11 +48,11 @@ jobs:
           CLUSTER_NAME="$(terraform output -raw cluster_name 2>/dev/null || echo '')"
           if [ -z "$CLUSTER_NAME" ]; then
             echo "No cluster name from state; usando EKS list"
-            CLUSTER_NAME="$(aws eks list-clusters --query 'clusters[?starts_with(@,`devopsVG`)]' --output text)"
+            CLUSTER_NAME="$(aws eks list-clusters --query 'clusters[?contains(@,`devops`)]' --output text)"
           fi
           if [ -n "$CLUSTER_NAME" ]; then
             aws eks update-kubeconfig --region us-east-1 --name "$CLUSTER_NAME"
-            kubectl delete namespace devopsVG --ignore-not-found=true --wait=false
+            kubectl delete namespace devopsvg --ignore-not-found=true --wait=false
             kubectl delete -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml --ignore-not-found=true
           fi
 

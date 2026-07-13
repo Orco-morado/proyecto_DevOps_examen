@@ -14,9 +14,6 @@ build/
 target/
 
 .terraform/
-*.tfstate
-*.tfstate.*
-.terraform.lock.hcl
 
 rendered-k8s/
 tfplan

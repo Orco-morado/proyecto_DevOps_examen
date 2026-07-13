@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: devopsVG
+  name: devopsvg
   labels:
-    proyecto: devopsVG
+    proyecto: devopsvg
     env: produccion

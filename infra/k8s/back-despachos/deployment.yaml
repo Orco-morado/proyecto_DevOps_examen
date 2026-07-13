@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: backend-despachos
-  namespace: devopsVG
+  namespace: devopsvg
   labels:
     app: backend-despachos
     tier: backend
