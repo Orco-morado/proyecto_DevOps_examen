@@ -1,69 +1,102 @@
-# Analisis del Pipeline CI/CD — devopsvg
+# Analisis del Pipeline CI/CD
 
-Documento para la evaluacion: analisis de desempeno, tiempos y oportunidades de mejora.
+## Que hace este documento
 
----
-
-## Flujo del pipeline (`deploy.yml`)
-
-| Job | Funcion | Dependencia |
-|-----|---------|-------------|
-| `build` | Compilar frontend (npm) + backends (Maven) | — |
-| `docker-push` | Matrix: buildx + push 3 imagenes a ECR (paralelo) | `build` |
-| `deploy-eks` | kubectl apply + rollout (mysql → backends → frontend) | `docker-push` |
-| `validate` | Verificar pods, servicios, HPA, LoadBalancer | `deploy-eks` |
+Analisis del pipeline de despliegue de devopsvg para la evaluacion: tiempos, problemas que encontramos, optimizaciones que hicimos y cosas que podriamos mejorar.
 
 ---
 
-## Metricas a registrar (desde GitHub Actions)
+## Como funciona el pipeline
 
-| Paso | Tiempo estimado | Tiempo real | Observaciones |
-|------|-----------------|-------------|---------------|
-| Build (npm + Maven) | ~2-3 min | ___ min | Secuencial dentro del job |
-| Build + push frontend | ~1-2 min | ___ min | docker/build-push-action@v6 + cache GHA |
-| Build + push back-ventas | ~2-3 min | ___ min | Maven + Docker (multi-stage) |
-| Build + push back-despachos | ~2-3 min | ___ min | Maven + Docker (multi-stage) |
-| Deploy a EKS (kubectl) | ~3-5 min | ___ min | Rollout Spring Boot + readiness probe |
-| Validacion | ~1-2 min | ___ min | Pods, servicios, HPA, LB |
-| **Total** | **~11-18 min** | ___ min | |
+El archivo `deploy.yml` tiene 4 jobs que corren en secuencia:
 
-> Los 3 builds de Docker corren en paralelo (matrix), reduciendo el tiempo total respecto a la version anterior (17 pasos secuenciales).
+```
+build (compila todo)
+  └─ docker-push (3 imagenes en paralelo)
+       └─ deploy-eks (aplica a Kubernetes)
+            └─ validate (verifica que funcione)
+```
 
----
+### Tiempo total estimado vs real
 
-## Optimizaciones implementadas
+Basado en la ejecucion #28 del pipeline:
 
-1. **Matrix de builds en paralelo** — las 3 imagenes se construyen y suben simultaneamente.
-2. **Docker layer caching** (type=gha) — reduce tiempo de rebuild al cachear capas entre runs.
-3. **Tag por commit SHA** — trazabilidad imagen ↔ codigo desplegado.
-4. **docker/build-push-action@v6** — buildx nativo, soporte multi-platform, build summaries.
-5. **$GITHUB_STEP_SUMMARY** — resumen del despliegue visible directamente en el run de Actions.
-6. **Kill Switch** — workflow manual para destruir infraestructura.
-7. **Orden de deploy** — mysql primero, luego backends, luego frontend.
+| Paso | Tiempo estimado | Tiempo real (#28) | Que paso |
+|------|:---------------:|:-----------------:|----------|
+| Compilacion (build) | 2-3 min | ~4s | Ya estaba cacheado del commit anterior |
+| Build + push 3 imagenes (docker-push) | 3-5 min | ~7s | Cache GHA, imagenes ya construidas |
+| Despliegue en EKS (deploy-eks) | 3-5 min | ~10m 13s | MySQL tuvo que reiniciarse por credenciales incorrectas |
+| Validacion (validate) | 1-2 min | ~14s | Todo OK |
+| **Total** | **~12-15 min** | **~10m 31s** | El deploy fue lento por el reinicio de MySQL |
 
----
-
-## Oportunidades de mejora futuras
-
-| Mejora | Impacto | Complejidad |
-|--------|---------|-------------|
-| Cache de dependencias Maven (`~/.m2`) | -1 min en build | Baja |
-| Cache de `node_modules` | -1 min en build | Baja |
-| Tests unitarios en CI (no skip) | Calidad | Media |
-| Blue/green con Argo Rollouts | Zero downtime | Alta |
-| AWS RDS en lugar de MySQL en K8s | Produccion real | Media |
-| Terraform Cloud / S3 backend | Estado compartido | Media |
+> **Nota**: En condiciones normales (sin reinicios de MySQL), el pipeline debiera completarse en 5-8 minutos. El run #28 se alargo porque corregimos credenciales de base de datos en caliente.
 
 ---
 
-## Errores comunes y solucion
+## Optimizaciones que implementamos
 
-| Error | Causa | Solucion |
-|-------|-------|----------|
-| `403 ECR` | Credenciales expiradas (Academy, 4h) | Renovar secrets en GitHub |
-| `ImagePullBackOff` | Imagen no existe en ECR | Verificar push en paso anterior |
-| Rollout timeout Spring Boot | MySQL no listo | Orden de deploy: mysql primero |
-| LB sin hostname | AWS tarda en provisionar | validate espera hasta 300s |
-| `ResourceInUseException: Addon already exists` | Addon creado manualmente antes que Terraform | `terraform import` del addon al state |
-| CoreDNS `DEGRADED` (falso positivo) | Health check transitorio | Verificar con `kubectl get pods -n kube-system` |
-| Node group `CREATING` por >10 min | Terraform apply timeouteó; instancias OK | `terraform import aws_eks_node_group.main` |
+1. **Builds en paralelo** — las 3 imagenes Docker se construyen y suben a ECR al mismo tiempo, en vez de una detras de otra.
+2. **Cache de Docker layers** — usamos cache de GitHub Actions para no reconstruir capas que no cambiaron.
+3. **Tag por commit** — cada imagen se etiqueta con el SHA del commit, asi sabemos exactamente que codigo esta corriendo.
+4. **Resumen en GITHUB_STEP_SUMMARY** — al final del deploy se genera un resumen visible directamente en la interfaz de GitHub Actions.
+5. **Kill Switch** — workflow manual para destruir toda la infraestructura si algo sale mal.
+6. **Orden de despliegue** — primero MySQL, luego los backends (que dependen de la BD), y al final el frontend.
+
+---
+
+## Problemas que encontramos y como los solucionamos
+
+### 1. Error de sintaxis en Terraform (`eks.tf:29`)
+- **Sintoma**: `Error: Missing newline after argument — bootstrap_self_managed_addons = false}`
+- **Causa**: El archivo no tenia un salto de linea al final, y en Linux Terraform lo interpretaba como si la llave `}` estuviera pegada al argumento.
+- **Solucion**: `terraform fmt -recursive infra/terraform/` arreglo el formato y agrego el newline faltante.
+
+### 2. ECR Registry vacio
+- **Sintoma**: Las imagenes apuntaban a `.dkr.ecr.us-east-1.amazonaws.com/...` (partia con punto, faltaba el account ID).
+- **Causa**: El secret `AWS_ACCOUNT_ID` no estaba configurado en GitHub Actions, asi que `secrets.AWS_ACCOUNT_ID` se resolvia como string vacio.
+- **Solucion**: Hardcodeamos el account ID (`847750225273`) directamente en el workflow. No es un valor sensible.
+
+### 3. Credenciales de MySQL desincronizadas
+- **Sintoma**: Los backends fallaban con `Access denied for user 'admin'@'...' (using password: YES)`.
+- **Causa**: El pipeline actualizo el secret de Kubernetes con nuevas credenciales, pero MySQL ya estaba corriendo con las credenciales viejas (creadas en su primera inicializacion).
+- **Solucion**: Eliminamos el pod de MySQL para que se recreara con las credenciales actuales del secret. Como usa `emptyDir`, los datos persisten solo mientras el pod vive (para un proyecto academico es aceptable).
+
+### 4. Pods viejos con `InvalidImageName`
+- **Sintoma**: Varios pods quedaron con estado `InvalidImageName` de deploys anteriores.
+- **Causa**: Los ReplicaSets viejos seguian activos, recreando pods con la imagen incorrecta.
+- **Solucion**: Eliminamos los ReplicaSets antiguos (`kubectl delete rs`).
+
+### 5. Nodos `NotReady` por renovacion de sesion Academy
+- **Sintoma**: Al renovar credenciales AWS Academy, los nodos viejos quedaban `NotReady` y no habia suficientes recursos.
+- **Causa**: La sesion del Learner Lab expiro y al renovarse los nodos existentes quedaron huérfanos.
+- **Solucion**: Escalamos el node group para agregar un nodo nuevo y los pods se reasignaron.
+
+---
+
+## Oportunidades de mejora
+
+Si el proyecto continuara, estas son las cosas que valdria la pena hacer:
+
+| Mejora | Por que | Esfuerzo |
+|--------|---------|:--------:|
+| Cachear `.m2` y `node_modules` en CI | Ahorraria ~1 min en cada build de los backends | Bajo |
+| Agregar tests unitarios al pipeline | Hoy se saltan con `-DskipTests` | Medio |
+| Migrar MySQL a Amazon RDS | MySQL en Kubernetes no es ideal para produccion (datos efimeros con `emptyDir`) | Medio |
+| Terraform Cloud o S3 backend | El estado de Terraform esta en el repo (no es lo ideal para un equipo) | Bajo |
+| Blue/green deployment con Argo Rollouts | Despliegues sin downtime | Alto |
+| Notificaciones Slack/Discord | Saber cuando el pipeline falla sin tener que revisar GitHub | Bajo |
+
+---
+
+## Comandos de referencia
+
+```bash
+# Ver las ejecuciones del pipeline
+gh run list --branch deploy
+
+# Ver los logs de una ejecucion
+gh run view <run-id> --log
+
+# Forzar la ejecucion del pipeline
+gh workflow run deploy.yml --ref deploy
+```
