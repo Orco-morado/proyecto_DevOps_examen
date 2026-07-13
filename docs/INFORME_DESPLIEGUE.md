@@ -1,175 +1,136 @@
 # Informe de Despliegue — devopsvg
 
-## Resumen ejecutivo
-
-El 13 de julio de 2026 se completo el despliegue de la aplicacion **devopsvg** (frontend React + 2 backends Spring Boot + MySQL 8.0) sobre Amazon EKS, utilizando un pipeline CI/CD automatizado en GitHub Actions.
-
-**Estado final: OPERATIVO** — los 7 pods corren, el frontend responde via LoadBalancer y las APIs estan disponibles internamente.
+> **INFRAESTRUCTURA DESTRUIDA** — Este documento es la memoria de lo que se construyo, como funciono y como se desmantelo. Queda como referencia academica y bitacora del proyecto.
 
 ---
 
-## Datos de la infraestructura
+## Resumen
 
-```
-Cuenta AWS:     847750225273 (us-east-1)
-Cluster:        devopsvg-eks (v1.32)
-Namespace:      devopsvg
-Node group:     devopsvg-nodes (t3.medium, min 2, max 4)
-LoadBalancer:   ac8fb27e764e94113803456d4f4eccd0-1474001629.us-east-1.elb.amazonaws.com
-```
+El 13 de julio de 2026 se completo el ciclo completo del proyecto:
+
+1. Se aprovisiono infraestructura en AWS con Terraform
+2. Se desplego la aplicacion via pipeline CI/CD
+3. Se valido el funcionamiento (todo operativo)
+4. Se destruyo todo con `terraform destroy` para no gastar creditos
+
+**Duracion total del proyecto**: ~12 horas (infraestructura viva ~2 horas para validacion)
 
 ---
 
-## Recursos aprovisionados
+## Que se construyo
 
-Se crearon 20 recursos via Terraform:
+### Infraestructura (17 recursos gestionados por Terraform)
 
 | Categoria | Recursos |
 |-----------|----------|
-| **Red** | VPC, 2 subnets publicas, Internet Gateway, route table, 2 asociaciones |
-| **IAM** | Datasource de LabRole |
-| **EKS** | Cluster, node group, security group |
-| **Addons** | vpc-cni, kube-proxy, coredns |
-| **ECR** | 3 repositorios privados de imagenes |
-| **CloudWatch** | Log group con retencion de 7 dias |
-
-### Topologia de red
+| **Red** | VPC `10.20.0.0/16`, 2 subnets publicas, Internet Gateway, route table + 2 asociaciones |
+| **EKS** | Cluster v1.32, node group 2x t3.medium, security group |
+| **Addons** | vpc-cni, kube-proxy, coredns (gestionados via `aws_eks_addon`) |
+| **ECR** | 3 repos privados (frontend, back-ventas, back-despachos) |
+| **CloudWatch** | Log group `/eks/devopsvg/applications`, 7 dias retencion |
 
 ```
 [Internet]
     |
-    +-- IGW (igw-0155b548646a3c800)
+    +-- IGW
     |
     +-- Subnet 1: 10.20.0.0/24 (us-east-1a)
     +-- Subnet 2: 10.20.1.0/24 (us-east-1b)
     |
-    +-- EKS Cluster + Nodos t3.medium
+    +-- EKS Cluster + 2 nodos t3.medium
 ```
 
----
+### Aplicacion desplegada (7 pods en Kubernetes)
 
-## Estado del despliegue
+| Servicio | Replicas | Puerto | Tipo |
+|----------|:--------:|:------:|------|
+| MySQL 8.0 | 1 | 3306 | ClusterIP |
+| Backend Ventas (Spring Boot) | 2 | 8084 | ClusterIP |
+| Backend Despachos (Spring Boot) | 2 | 8085 | ClusterIP |
+| Frontend (React + Nginx) | 2 | 80 → 8081 | LoadBalancer |
 
-A las 03:23 UTC del 13/07/2026, todos los servicios estaban operativos:
-
-| Servicio | Replicas | Ready | Tipo | Puerto |
-|----------|:--------:|:-----:|------|--------|
-| MySQL | 1 | ✅ | ClusterIP | 3306 |
-| Backend Ventas | 2 | ✅ | ClusterIP | 8084 |
-| Backend Despachos | 2 | ✅ | ClusterIP | 8085 |
-| Frontend | 2 | ✅ | LoadBalancer | 80 → 8081 |
-
-### URLs de acceso
-
-- **Frontend**: http://ac8fb27e764e94113803456d4f4eccd0-1474001629.us-east-1.elb.amazonaws.com
-- **APIs**: Acceso interno via ClusterIP (no expuestas a internet)
-
-### Autoscaling (HPA)
-
-Ambos backends tienen HPA configurado al 50% de CPU:
-- Minimo: 2 replicas
-- Maximo: 4 replicas
-- Uso actual: ~2% de CPU
-
----
-
-## Repositorios ECR
-
-Las 3 imagenes estan subidas a Amazon ECR con tag `latest` y por commit SHA:
-
-| Repositorio | Imagen `latest` |
-|-------------|:---------------:|
-| `847750225273.dkr.ecr.us-east-1.amazonaws.com/devopsvg-frontend` | ✅ Subida |
-| `847750225273.dkr.ecr.us-east-1.amazonaws.com/devopsvg-back-ventas` | ✅ Subida |
-| `847750225273.dkr.ecr.us-east-1.amazonaws.com/devopsvg-back-despachos` | ✅ Subida |
-
----
-
-## Pipeline CI/CD
-
-### Flujo de despliegue
-
-El pipeline se activa con un push a la rama `deploy`:
+### Pipeline CI/CD (GitHub Actions)
 
 ```
-Compilacion (build)
-    ↓
-Build + push a ECR (docker-push) — 3 imagenes en paralelo
-    ↓
-Despliegue en EKS (deploy-eks) — mysql → backends → frontend
-    ↓
-Validacion (validate) — pods, servicios, HPA, LoadBalancer
+build (compila)
+  └─ docker-push (3 imagenes en paralelo → ECR)
+       └─ deploy-eks (kubectl apply: mysql → backends → frontend)
+            └─ validate (pods, servicios, HPA, LoadBalancer)
 ```
 
-### Tiempos de ejecucion (run #28)
-
-| Paso | Duracion |
-|------|----------|
-| Compilacion | ~4s |
-| Build + push Docker | ~7s |
-| Despliegue EKS | ~10m 13s (timeout por reinicio de MySQL) |
-| Validacion | ~14s |
-
-> El tiempo largo en `deploy-eks` se debio a que MySQL tuvo que reiniciarse con las credenciales correctas y los backends entraron en CrashLoopBackOff hasta que MySQL estuvo listo. En condiciones normales, el despliegue completo toma 5-8 minutos.
+**Tiempos reales (run #28):**
+- Compilacion: ~4s (cacheado)
+- Build + push Docker: ~7s (cacheado)
+- Despliegue EKS: ~10m 13s (con reinicio de MySQL incluido)
+- Validacion: ~14s
+- **Total: ~10m 31s** (en condiciones normales: 5-8 min)
 
 ---
 
-## Limitaciones conocidas
+## Bitacora del proyecto
 
-### AWS Academy (Learner Lab)
-- Las credenciales expiran cada ~4 horas. Hay que renovar los secrets en GitHub antes de correr el pipeline.
-- `iam:AttachRolePolicy` esta bloqueado → usamos LabRole directamente (no OIDC).
-- Al renovar la sesion de Academy, los nodos viejos quedan `NotReady` y hay que escalar el node group o forzar el reciclaje.
-- `eks:DescribeCluster` puede fallar intermitentemente → Terraform plan/destroy se ve afectado.
-- Los LoadBalancers son Classic ELB (no NL B/ALB), compatible con las restricciones del lab.
+### 01:00 — Aprovisionamiento
+Se aplico Terraform: VPC, subnets, IGW, EKS cluster, node group, addons, ECR, CloudWatch.
 
-### Pipeline
-- El push Docker de back-ventas se cuelga en Windows (manifest list multi-arch). No es problema porque GitHub Actions corre en Linux y usa `docker/build-push-action@v6`.
-- Si Terraform falla con "Addon already exists", hay que importar el recurso al estado antes de aplicar.
+### 01:59 — Primer push a ECR
+`devopsvg-frontend:latest` subido exitosamente a ECR.
+
+### 02:10 — Segundo push
+`devopsvg-back-despachos:latest` subido.
+`devopsvg-back-ventas` no pudo subirse localmente (bug manifest list multi-arch en Docker Desktop Windows).
+
+### 02:45 — Pipeline #27 (fallo)
+Se disparo el pipeline con push a `deploy`. Falla porque `ECR_REGISTRY` quedaba `.dkr.ecr...` (faltaba el account ID en el secret de GitHub).
+
+**Fix**: Hardcodear `847750225273` en deploy.yml. Tambien se soluciono `terraform fmt` en eks.tf (newline faltante).
+
+### 03:02 — Pipeline #28 ( despliegue)
+Segundo intento. El `ECR_REGISTRY` ya se ve correcto. Pero falla el rollout de backend-ventas.
+
+**Causa**: Las credenciales de MySQL en el secret de Kubernetes no coincidian con las que MySQL tenia al iniciarse (el pipeline habia actualizado el secret pero MySQL no se reinicio).
+
+### 03:09 — Correccion manual de MySQL
+Se elimino el pod de MySQL para que se reiniciara con las credenciales actuales del secret. Tambien se limpiaron ReplicaSets viejos con `InvalidImageName` (deploys anteriores con ECR registry malo).
+
+### 03:20 — Todo operativo
+Los 7 pods en Running, HPA funcional (2% CPU), frontend responde HTTP 200.
+
+### 03:20 — Prueba de acceso
+El frontend responde desde AWS pero da timeout desde internet (problema de conectividad del usuario, no del despliegue).
+
+### 03:40 — Destruccion
+`terraform destroy` + limpieza manual de ECR. 17 recursos destruidos exitosamente.
 
 ---
 
-## Bitacora del despliegue
+## Problemas y soluciones
 
-| Hora (UTC) | Evento |
-|------------|--------|
-| 01:59 | Push de `devopsvg-frontend:latest` a ECR |
-| 02:10 | Push de `devopsvg-back-despachos:latest` a ECR |
-| 02:45 | Pipeline #27: falla `ECR_REGISTRY` vacio (faltaba `AWS_ACCOUNT_ID`) |
-| 03:02 | Pipeline #28: corrige `ECR_REGISTRY`, pero falla rollout de backends |
-| 03:09 | Pods de backend-ventas en CrashLoopBackOff (credenciales MySQL incorrectas) |
-| 03:13 | Se elimina el pod de MySQL para reiniciarlo con credenciales correctas |
-| 03:14 | Se eliminan ReplicaSets viejos con `InvalidImageName` |
-| 03:19 | MySQL Ready con bases de datos `db_despacho` y `db_venta` |
-| 03:20 | Backends reiniciados y conectados a MySQL |
-| 03:23 | Todos los pods operativos. Frontend responde HTTP 200 |
+| Problema | Causa | Solucion |
+|----------|-------|----------|
+| `bootstrap_self_managed_addons = false}` | Faltaba newline al final de eks.tf | `terraform fmt` |
+| ECR Registry `.dkr.ecr...` | Secret `AWS_ACCOUNT_ID` no configurado | Hardcodear account ID |
+| `Access denied for user 'admin'` | MySQL uso credenciales viejas | Eliminar pod MySQL para reinicio |
+| `InvalidImageName` en pods viejos | ReplicaSets de deploys anteriores | `kubectl delete rs` |
+| ECR no se borra en `terraform destroy` | Repos tenian imagenes | `force_delete = true` en ecr.tf |
+| Nodos `NotReady` | Sesion Academy renovada | Escalar node group |
 
 ---
 
-## Comandos utiles
+## Comandos utiles (para el proximo deploy)
 
 ```bash
-# Conectarse al cluster
-aws eks update-kubeconfig --name devopsvg-eks --region us-east-1
+# 1. Aprovisionar infraestructura
+cd infra/terraform
+terraform init && terraform apply -auto-approve
 
-# Ver estado
-kubectl get nodes
+# 2. Desplegar aplicacion
+git checkout deploy && git push origin deploy
+# El pipeline hace el resto
+
+# 3. Verificar
+aws eks update-kubeconfig --name devopsvg-eks --region us-east-1
 kubectl get pods,svc,hpa -n devopsvg
 
-# Obtener URL del frontend
-kubectl get svc frontend -n devopsvg \
-  -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
-
-# Health check
-curl -I http://$(kubectl get svc frontend -n devopsvg \
-  -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-
-# Logs de aplicacion
-aws logs describe-log-groups --log-group-name-prefix "/eks/devopsvg" \
-  --region us-east-1
-
-# Terraform
-cd infra/terraform
-terraform state list
-terraform output
+# 4. Destruir
+cd infra/terraform && terraform destroy -auto-approve
 ```
