@@ -18,3 +18,4 @@ target/
 rendered-k8s/
 tfplan
 *.log
+terraform.tfstate.*.backup
