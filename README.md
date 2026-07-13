@@ -1,150 +1,115 @@
-# devopsVG — Proyecto DevOps
+# devopsvg — Proyecto DevOps
 
-Aplicacion full-stack containerizada sobre **Amazon EKS** con pipeline CI/CD automatizado, desplegada mediante **Terraform** y orquestada con **Kubernetes**.
+Una aplicacion web full-stack (React + Spring Boot + MySQL) desplegada en Amazon EKS con pipeline CI/CD automatizado. Construido como proyecto transversal para el ramo ISY1101.
+
+```
+Frontend → Nginx → Backend Ventas (:8084) → MySQL
+                 → Backend Despachos (:8085) → MySQL
+```
 
 ---
 
-## Arquitectura
+## Estado actual del despliegue
 
-```
-[Internet]
-    |
-    +-- LoadBalancer (Classic ELB)
-        |
-        +-- Nginx (API Gateway, non-root :8081)
-            |
-            +-- /api/v1/ventas/    → backend-ventas:8084
-            +-- /api/v1/despachos/ → backend-despachos:8085
-            +-- /*                 → React (static)
+| Servicio | Replicas | Estado | Acceso |
+|----------|:--------:|--------|--------|
+| Frontend (React + Nginx) | 2 | ✅ Running | [LoadBalancer](http://ac8fb27e764e94113803456d4f4eccd0-1474001629.us-east-1.elb.amazonaws.com) |
+| Backend Ventas (Spring Boot) | 2 | ✅ Running | Interno ClusterIP :8084 |
+| Backend Despachos (Spring Boot) | 2 | ✅ Running | Interno ClusterIP :8085 |
+| MySQL 8.0 | 1 | ✅ Running | Interno ClusterIP :3306 |
 
-Servicios internos (ClusterIP):
-  - backend-ventas (Spring Boot, :8084)
-  - backend-despachos (Spring Boot, :8085)
-  - mysql (:3306)
-```
+---
 
-| Servicio | Puerto | Lenguaje | Replicas | HPA |
-|----------|--------|----------|:--------:|:---:|
-| frontend (nginx + React) | 80 (LB) → 8081 (non-root) | Node 20 / Vite | 2 | — |
-| backend-ventas | 8084 | Java 17 / Spring Boot | 2 | CPU 50% |
-| backend-despachos | 8085 | Java 17 / Spring Boot | 2 | CPU 50% |
-| mysql | 3306 | MySQL 8.0 | 1 | — |
+## Que hace cada cosa
+
+Imagina una tienda online chica. Necesitas:
+
+- **Un mostrador** (frontend) — hecho en React, con Vite y Tailwind. Atiende en el puerto 8081.
+- **Una bodega de productos** (backend-ventas) — API en Spring Boot que maneja todo el catalogo y las ventas. Puerto 8084.
+- **Una central de despachos** (backend-despachos) — otra API Spring Boot que se encarga de las entregas. Puerto 8085.
+- **Un libro de contabilidad** (MySQL) — base de datos compartida donde ambos backends guardan y leen informacion.
+
+En el medio hay un **Nginx** que actua como portero (API Gateway): recibe las peticiones del frontend y las redirige al backend que corresponda.
 
 ---
 
 ## Estructura del proyecto
 
 ```
-proyecto_DevOps_nota2/
+proyecto_DevOps_examen/
 ├── infra/
-│   ├── terraform/          # IaC (7 archivos separados)
-│   │   ├── main.tf         # Provider, VPC, subnets, IGW, route tables
-│   │   ├── variables.tf    # aws_region, project_name, cluster_version
-│   │   ├── outputs.tf      # cluster_name, vpc_id, 3 ECR URLs
-│   │   ├── eks.tf          # EKS v1.32 + node group t3.medium
-│   │   ├── ecr.tf          # 3 repos ECR
-│   │   ├── iam.tf          # LabRole datasource
-│   │   └── cloudwatch.tf   # Log Group
-│   └── k8s/                # Manifiestos por servicio
-│       ├── namespace/      # Namespace devopsVG
-│       ├── configmaps/     # DB endpoints + datasource URLs
-│       ├── secrets/        # Template credenciales MySQL
-│       ├── mysql/          # Deployment + Service + init script
-│       ├── back-ventas/    # Deployment + Service + HPA
-│       ├── back-despachos/ # Deployment + Service + HPA
-│       └── frontend/       # Deployment + Service LoadBalancer
+│   ├── terraform/              # Infraestructura como codigo (8 archivos .tf)
+│   └── k8s/                    # Manifiestos de Kubernetes
+│       ├── namespace/          # Namespace devopsvg
+│       ├── configmaps/         # Configuracion (URLs de BD, etc.)
+│       ├── secrets/            # Credenciales de MySQL
+│       ├── mysql/              # Base de datos
+│       ├── back-ventas/        # Backend de ventas
+│       ├── back-despachos/     # Backend de despachos
+│       └── frontend/           # Frontend con LoadBalancer
 ├── scripts/
-│   ├── deploy-k8s.sh       # Despliegue ordenado con envsubst
-│   └── validate-deployment.sh  # Validacion post-despliegue
+│   ├── deploy-k8s.sh           # Despliegue automatico a EKS
+│   └── validate-deployment.sh  # Verificacion post-despliegue
 ├── .github/workflows/
-│   ├── ci.yml              # Compilacion (3 jobs paralelos)
-│   ├── deploy.yml          # CD a EKS (17 pasos)
-│   └── destroy.yml         # Kill Switch manual
-├── front_despacho/         # React + Vite + Tailwind + Nginx
-├── back-Ventas_SpringBoot/ # Backend ventas :8084
-├── back-Despachos_SpringBoot/ # Backend despachos :8085
+│   ├── ci.yml                  # Compilacion automatica
+│   ├── deploy.yml              # Despliegue continuo a EKS
+│   └── destroy.yml             # Destruccion manual de infraestructura
+├── front_despacho/             # Codigo fuente del frontend (React)
+├── back-Ventas_SpringBoot/     # Codigo fuente backend ventas
+├── back-Despachos_SpringBoot/  # Codigo fuente backend despachos
 └── docs/
-    ├── INFORME_DESPLIEGUE.md
-    ├── PIPELINE-ANALISIS.md
-    └── CONTEXTO_CD_GORDON.md
+    ├── INFORME_DESPLIEGUE.md   # Reporte completo del despliegue
+    └── PIPELINE-ANALISIS.md    # Analisis del pipeline CI/CD
 ```
 
 ---
 
-## Infraestructura (Terraform)
+## Como funciona el pipeline
 
-La infraestructura se aprovisiona automaticamente via Terraform (`.tfstate` cacheado en GitHub Actions):
+### CI — Compilacion (`.github/workflows/ci.yml`)
+Cada vez que haces push a `main`, se compila todo:
+1. Frontend con `npm ci && npm run build`
+2. Backend ventas con Maven
+3. Backend despachos con Maven
 
-| Recurso | Detalle |
-|---------|---------|
-| **VPC** | `10.20.0.0/16` con 2 subnets publicas |
-| **EKS** | v1.32, 2 nodos t3.medium (min 2, max 4) |
-| **ECR** | 3 repos privados: `devopsVG-frontend`, `devopsVG-back-ventas`, `devopsVG-back-despachos` |
-| **CloudWatch** | Log Group `/eks/devopsVG/applications`, retencion 7 dias |
-| **Total recursos** | ~17 gestionados por Terraform |
+Los 3 jobs corren en paralelo.
 
+### CD — Despliegue (`.github/workflows/deploy.yml`)
+Cuando haces push a la rama `deploy`, arranca el despliegue completo:
+
+```
+build → docker-push (3 imagenes en paralelo) → deploy-eks → validate
+```
+
+1. **build** — compila todo (igual que CI)
+2. **docker-push** — construye las 3 imagenes Docker y las sube a Amazon ECR (el repositorio de imagenes)
+3. **deploy-eks** — aplica los manifiestos a Kubernetes en orden: primero MySQL, luego los backends, luego el frontend
+4. **validate** — verifica que todo haya quedado funcionando
+
+### Kill Switch (`.github/workflows/destroy.yml`)
+Si quieres destruir toda la infraestructura (VPC, EKS, todo), ejecutas este workflow manualmente desde GitHub Actions.
+
+---
+
+## Como usarlo
+
+### Para desplegar en EKS
 ```bash
-cd infra/terraform
-terraform init
-terraform validate
-terraform apply -auto-approve
+git checkout deploy
+git push origin deploy
+# El pipeline corre solo en GitHub Actions
 ```
 
----
-
-## Pipeline CI/CD
-
-### CI (`ci.yml`)
-Se activa en push/PR a `main`. Compila en paralelo:
-1. Frontend (npm ci + build)
-2. Backend ventas (Maven package)
-3. Backend despachos (Maven package)
-
-### CD (`deploy.yml`)
-Se activa en push a rama `deploy` o manualmente. Flujo completo:
-
-```
-Checkout → AWS creds → Terraform init → TF apply → Login ECR
-→ Build+push 3 imagenes → kubectl connect
-→ Namespace + Metrics Server + Secrets
-→ deploy-k8s.sh (envsubst + rollout)
-→ validate-deployment.sh
+### Para ver el estado del cluster
+```bash
+aws eks update-kubeconfig --name devopsvg-eks --region us-east-1
+kubectl get pods,svc -n devopsvg
 ```
 
-### Kill Switch (`destroy.yml`)
-Workflow manual que ejecuta `terraform destroy` con timeout de 45 min. Limpia el cluster EKS, repos ECR, VPC y Log Group.
-
----
-
-## Configuracion de Secretos (GitHub Actions)
-
-| Secret | Uso |
-|--------|-----|
-| `AWS_ACCESS_KEY_ID` | Credenciales AWS Academy |
-| `AWS_SECRET_ACCESS_KEY` | Credenciales AWS Academy |
-| `AWS_SESSION_TOKEN` | Token temporal (expira cada 4h) |
-| `AWS_ACCOUNT_ID` | ID de cuenta AWS (12 digitos) |
-| `MYSQL_ROOT_PASSWORD` | Password root de MySQL |
-| `MYSQL_USER` | Usuario de aplicacion MySQL |
-| `MYSQL_PASSWORD` | Password de aplicacion MySQL |
-
----
-
-## Notas tecnicas sobre AWS Academy
-
-- **LabRole** se usa directamente (OIDC bloqueado por politica `voc-cancel-cred`)
-- **Metrics Server** se instala en el pipeline para habilitar HPA
-- **LoadBalancer classic** (no NL B/ALB) compatible con restricciones del Learner Lab
-- MySQL usa `emptyDir` (no EBS CSI, requiere OIDC)
-- Las credenciales AWS expiran cada 4 horas → renovar antes de ejecutar el CD
-
----
-
-## Despliegue Local (Docker Compose)
-
+### Para desarrollo local
 ```bash
 cp .env.example .env
-# Editar .env con credenciales locales
+# Editar .env con tus credenciales
 docker compose up -d --build
 ```
 
@@ -154,5 +119,56 @@ docker compose up -d --build
 | Backend despachos | http://localhost:8082 |
 | Backend ventas | http://localhost:8083 |
 
-> En local las APIs se consumen directamente (VITE_API_* apunta a localhost).
-> En EKS el ruteo lo hace Nginx via proxy_pass interno.
+---
+
+## Infraestructura (Terraform)
+
+Todo el aprovisionamiento de AWS se maneja con Terraform:
+
+| Recurso | Que hace |
+|---------|----------|
+| **VPC** | Red virtual con 2 subnets publicas (10.20.0.0/16) |
+| **EKS** | Cluster Kubernetes v1.32 con 2 nodos t3.medium |
+| **ECR** | 3 repositorios para las imagenes Docker |
+| **CloudWatch** | Logs de aplicacion con retencion de 7 dias |
+| **~20 recursos** en total, gestionados por Terraform |
+
+```bash
+cd infra/terraform
+terraform init
+terraform apply -auto-approve
+```
+
+---
+
+## Cosas que aprendimos en el camino
+
+### Sobre AWS Academy (Learner Lab)
+- Las credenciales expiran cada ~4 horas. Hay que renovarlas antes de ejecutar el pipeline.
+- No se pueden adjuntar politicas IAM nuevas (`voc-cancel-cred` bloquea). Usamos LabRole directamente.
+- El LoadBalancer que creamos es clasico (Classic ELB), no NL B/ALB, porque el Learner Lab lo restringe.
+- Si la sesion expira y se renueva, los nodos del cluster se reciclan (quedan `NotReady` y hay que agregar nuevos).
+
+### Sobre el pipeline
+- El bug del push Docker de back-ventas (manifest list multi-arch colgado en Windows) solo ocurre localmente. En GitHub Actions corre perfecto con runners Linux nativos.
+- Si Terraform falla con "Addon already exists", hay que importar el recurso al state: `terraform import aws_eks_addon.vpc_cni ...`
+- El node group tarda 8-12 minutos en crearse. Si el `apply` se va a timeout, solo importa el node group al state y vueleve a aplicar.
+
+### Sobre los problemas que tuvimos
+1. **Error de sintaxis en eks.tf** — el archivo no tenia un salto de linea al final, y Terraform en Linux lo interpretaba como `false}` en la misma linea. Lo soluciono `terraform fmt`.
+2. **ECR Registry vacio** — el secret `AWS_ACCOUNT_ID` no estaba configurado en GitHub, asi que las imagenes apuntaban a `.dkr.ecr...` (sin el ID de cuenta). Se soluciono hardcodeando el account ID.
+3. **MySQL con contrasena incorrecta** — el pipeline actualizo el secret de Kubernetes, pero MySQL ya estaba corriendo con la contrasena anterior. Se soluciono eliminando el pod de MySQL para que se reiniciara con las credenciales correctas.
+
+---
+
+## Secretos requeridos (GitHub Actions)
+
+| Secret | Para que sirve |
+|--------|----------------|
+| `AWS_ACCESS_KEY_ID` | Credenciales de AWS Academy |
+| `AWS_SECRET_ACCESS_KEY` | Credenciales de AWS Academy |
+| `AWS_SESSION_TOKEN` | Token temporal (renovar cada 4h) |
+| `AWS_ACCOUNT_ID` | ID de la cuenta AWS (12 digitos) |
+| `MYSQL_ROOT_PASSWORD` | Contrasena root de MySQL |
+| `MYSQL_USER` | Usuario de aplicacion para MySQL |
+| `MYSQL_PASSWORD` | Contrasena del usuario de aplicacion |

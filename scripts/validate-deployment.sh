@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Valida que el despliegue en EKS este correcto.
-# Variables requeridas: K8S_NAMESPACE (opcional, default: devopsVG)
+# Variables requeridas: K8S_NAMESPACE (opcional, default: devopsvg)
 
 set -euo pipefail
 
-NAMESPACE="${K8S_NAMESPACE:-devopsVG}"
+NAMESPACE="${K8S_NAMESPACE:-devopsvg}"
 ERRORS=0
 
 echo "=========================================="
-echo "  Validacion del Despliegue - devopsVG"
+echo "  Validacion del Despliegue - devopsvg"
 echo "=========================================="
 echo ""
 

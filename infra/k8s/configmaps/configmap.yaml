@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: devopsvg-config
-  namespace: devopsVG
+  namespace: devopsvg
 data:
   DB_ENDPOINT: "mysql"
   DB_PORT: "3306"

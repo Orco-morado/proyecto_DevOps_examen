@@ -1,4 +1,4 @@
-name: CI - devopsVG
+name: CI - devopsvg
 
 on:
   push:
@@ -22,6 +22,9 @@ jobs:
       - name: Compilar
         working-directory: front_despacho
         run: npm run build --if-present
+      - name: Ejecutar pruebas
+        working-directory: front_despacho
+        run: npm test --if-present
 
   back-ventas:
     name: Construir Backend Ventas (Maven + Spring Boot)
