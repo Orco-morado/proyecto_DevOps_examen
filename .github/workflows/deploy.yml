@@ -125,7 +125,7 @@ jobs:
 
       - name: kubectl apply + rollout
         env:
-          ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+          ECR_REGISTRY: 847750225273.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
           IMAGE_TAG: ${{ github.sha }}
         run: |
           chmod +x scripts/deploy-k8s.sh
