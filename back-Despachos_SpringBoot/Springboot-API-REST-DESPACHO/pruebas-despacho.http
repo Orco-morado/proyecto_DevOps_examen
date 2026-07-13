@@ -1,0 +1,16 @@
+### Probar si el servicio de despachos responde (GET)
+GET http://localhost:8082/api/v1/despachos
+
+### Probar un envío de datos exitoso (POST)
+POST http://localhost:8082/api/v1/despachos
+Content-Type: application/json
+
+{
+    "fechaDespacho": "2026-05-18",
+    "patenteCamion": "XYZ-99",
+    "intento": 1,
+    "idCompra": 1,
+    "direccionCompra": "Av. Providencia 123",
+    "valorCompra": 25000,
+    "despachado": false
+}

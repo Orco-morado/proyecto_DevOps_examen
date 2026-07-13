@@ -1,0 +1,62 @@
+name: X - Kill Switch AWS
+
+on:
+  workflow_dispatch:
+
+jobs:
+  terraform-destroy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 1. Checkout del codigo
+        uses: actions/checkout@v4
+
+      - name: 2. Configurar credenciales de AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: 3. Configurar Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: 4. Configurar kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: 5. Restaurar estado de Terraform
+        uses: actions/cache@v4
+        with:
+          path: |
+            infra/terraform/terraform.tfstate
+            infra/terraform/terraform.tfstate.backup
+          key: terraform-state-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            terraform-state-${{ github.ref_name }}-
+
+      - name: 6. Terraform Init
+        working-directory: infra/terraform
+        run: terraform init
+
+      - name: 7. Limpieza previa de Kubernetes
+        working-directory: infra/terraform
+        continue-on-error: true
+        run: |
+          CLUSTER_NAME="$(terraform output -raw cluster_name 2>/dev/null || echo '')"
+          if [ -z "$CLUSTER_NAME" ]; then
+            echo "No cluster name from state; usando EKS list"
+            CLUSTER_NAME="$(aws eks list-clusters --query 'clusters[?starts_with(@,`devopsVG`)]' --output text)"
+          fi
+          if [ -n "$CLUSTER_NAME" ]; then
+            aws eks update-kubeconfig --region us-east-1 --name "$CLUSTER_NAME"
+            kubectl delete namespace devopsVG --ignore-not-found=true --wait=false
+            kubectl delete -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml --ignore-not-found=true
+          fi
+
+      - name: 8. Terraform Destroy
+        working-directory: infra/terraform
+        timeout-minutes: 45
+        run: terraform destroy -auto-approve

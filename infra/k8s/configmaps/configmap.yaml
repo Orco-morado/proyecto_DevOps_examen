@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: devopsvg-config
+  namespace: devopsVG
+data:
+  DB_ENDPOINT: "mysql"
+  DB_PORT: "3306"
+  SPRING_DATASOURCE_URL_DESPACHO: "jdbc:mysql://mysql:3306/db_despacho?useSSL=false&serverTimezone=UTC&createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true"
+  SPRING_DATASOURCE_URL_VENTA: "jdbc:mysql://mysql:3306/db_venta?useSSL=false&serverTimezone=UTC&createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true"

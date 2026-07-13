@@ -1,0 +1,89 @@
+version: '3.8'
+
+services:
+  # --- BASE DE DATOS COMPARTIDA ---
+  db-sistema:
+    image: public.ecr.aws/docker/library/mysql:8.0
+    container_name: db-sistema
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DB_DESPACHO}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_sistema_data:/var/lib/mysql
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - sistema-network
+    restart: always
+    # HEALTHCHECK: Obliga a esperar a que MySQL esté listo para recibir conexiones
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # --- MICROSERVICIO: BACKEND DESPACHO ---
+  api-despacho:
+    build:
+      context: ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
+    image: api-despacho:local
+    container_name: api-despacho
+    ports:
+      - "8082:8085" 
+    environment:
+      SPRING_DATASOURCE_URL: ${SPRING_DESPACHO_URL}
+      SPRING_DATASOURCE_USERNAME: ${SPRING_DESPACHO_USER}
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DESPACHO_PASS}
+    depends_on:
+      db-sistema:
+        condition: service_healthy # Espera al healthcheck de db-sistema
+    networks:
+      - sistema-network
+    restart: always
+
+  # --- MICROSERVICIO: BACKEND VENTA ---
+  api-venta:
+    build:
+      context: ./back-Ventas_SpringBoot/Springboot-API-REST
+    image: api-venta:local
+    container_name: api-venta
+    ports:
+      - "8083:8084" 
+    environment:
+      SPRING_DATASOURCE_URL: ${SPRING_VENTA_URL}
+      SPRING_DATASOURCE_USERNAME: ${SPRING_VENTA_USER}
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_VENTA_PASS}
+    depends_on:
+      db-sistema:
+        condition: service_healthy # Espera al healthcheck de db-sistema
+    networks:
+      - sistema-network
+    restart: always
+
+  # --- FRONTEND (REACT APP) ---
+  frontend-app:
+    build:
+      context: ./front_despacho
+      args:
+        VITE_API_DESPACHOS_URL: ${VITE_API_DESPACHOS_URL}
+        VITE_API_VENTA_URL: ${VITE_API_VENTA_URL}
+    image: frontend-app:local
+    container_name: frontend-app
+    ports:
+      - "8081:8081" 
+    environment:
+      - VITE_API_DESPACHOS_URL=${VITE_API_DESPACHOS_URL}
+      - VITE_API_VENTA_URL=${VITE_API_VENTA_URL}
+    networks:
+      - sistema-network
+    restart: always
+
+volumes:
+  mysql_sistema_data:
+
+networks:
+  sistema-network:
+    driver: bridge
