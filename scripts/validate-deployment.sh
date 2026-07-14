@@ -43,8 +43,8 @@ check_internal() {
   fi
 }
 
-check_internal back-ventas 8084 8084 /api/v1/ventas
-check_internal back-despachos 8085 8085 /api/v1/despachos
+check_internal backend-ventas 8084 8084 /api/v1/ventas
+check_internal backend-despachos 8085 8085 /api/v1/despachos
 check_internal frontend 8081 8081 /
 
 echo ""
