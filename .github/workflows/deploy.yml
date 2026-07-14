@@ -115,7 +115,7 @@ jobs:
         run: |
           kubectl apply -f infra/k8s/namespace/
           kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
-          kubectl rollout status deployment/metrics-server -n kube-system --timeout=180s
+          kubectl rollout status deployment/metrics-server -n kube-system --timeout=600s
           kubectl create secret generic devopsvg-db-secret \
             -n devopsvg \
             --from-literal=root-password='${{ secrets.MYSQL_ROOT_PASSWORD }}' \
