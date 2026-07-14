@@ -113,6 +113,10 @@ jobs:
 
       - name: Namespace + Metrics Server + Secrets
         run: |
+          echo "==> Comprobando nodos del clúster"
+          kubectl get nodes
+          kubectl describe nodes
+
           kubectl apply -f infra/k8s/namespace/
           kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
           kubectl rollout status deployment/metrics-server -n kube-system --timeout=900s || {
