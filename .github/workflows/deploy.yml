@@ -115,7 +115,16 @@ jobs:
         run: |
           kubectl apply -f infra/k8s/namespace/
           kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
-          kubectl rollout status deployment/metrics-server -n kube-system --timeout=900s
+          kubectl rollout status deployment/metrics-server -n kube-system --timeout=900s || {
+            echo "==> ERROR: metrics-server rollout failed"
+            echo "==> Pod status"
+            kubectl get pods -n kube-system -l k8s-app=metrics-server
+            echo "==> Describe pod"
+            kubectl describe pod -n kube-system -l k8s-app=metrics-server
+            echo "==> Logs"
+            kubectl logs -n kube-system -l k8s-app=metrics-server --tail=100 || true
+            exit 1
+          }
 
           kubectl create secret generic devopsvg-db-secret \
             -n devopsvg \
