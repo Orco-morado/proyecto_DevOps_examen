@@ -111,11 +111,36 @@ jobs:
       - name: Conectar al cluster EKS
         run: aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
 
-      - name: Namespace + Metrics Server + Secrets
+      - name: Ensure node group + Namespace + Secrets
         run: |
+          echo "==> Checking EKS node group"
+          NG=$(aws eks list-nodegroups --cluster-name ${{ env.EKS_CLUSTER_NAME }} \
+               --region ${{ env.AWS_REGION }} --query 'length(nodegroups)' --output text 2>/dev/null || echo "0")
+          if [ "$NG" = "0" ]; then
+            echo "==> Node group missing. Creating..."
+            SUBNETS=$(aws eks describe-cluster --name ${{ env.EKS_CLUSTER_NAME }} \
+                     --region ${{ env.AWS_REGION }} \
+                     --query 'cluster.resourcesVpcConfig.subnetIds' --output text | tr '\t' ' ')
+            aws eks create-nodegroup \
+              --cluster-name ${{ env.EKS_CLUSTER_NAME }} \
+              --nodegroup-name devopsvg-nodes \
+              --subnets $SUBNETS \
+              --instance-types t3.medium \
+              --scaling-config minSize=2,maxSize=4,desiredSize=2 \
+              --node-role arn:aws:iam::847750225273:role/LabRole
+            echo "==> Waiting for node group to be active..."
+            aws eks wait nodegroup-active --cluster-name ${{ env.EKS_CLUSTER_NAME }} \
+              --nodegroup-name devopsvg-nodes
+            echo "==> Waiting for nodes to join..."
+            kubectl wait --for=condition=Ready nodes --all --timeout=300s 2>/dev/null || true
+          else
+            echo "==> Node group OK"
+          fi
+
+          echo "==> Namespace"
           kubectl apply -f infra/k8s/namespace/
-          kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
-          kubectl rollout status deployment/metrics-server -n kube-system --timeout=180s
+
+          echo "==> DB Secret"
           kubectl create secret generic devopsvg-db-secret \
             -n devopsvg \
             --from-literal=root-password='${{ secrets.MYSQL_ROOT_PASSWORD }}' \

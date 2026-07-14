@@ -1,61 +1,80 @@
 #!/usr/bin/env bash
-# Valida que el despliegue en EKS este correcto.
-# Variables requeridas: K8S_NAMESPACE (opcional, default: devopsvg)
+# Valida que los servicios desplegados en EKS respondan correctamente.
 
 set -euo pipefail
 
 NAMESPACE="${K8S_NAMESPACE:-devopsvg}"
-ERRORS=0
+LB_TIMEOUT=300
+LB_INTERVAL=15
+ELAPSED=0
 
-echo "=========================================="
-echo "  Validacion del Despliegue - devopsvg"
-echo "=========================================="
-echo ""
+echo "==> 1. Validando pods en namespace ${NAMESPACE}..."
+kubectl get pods -n "${NAMESPACE}" -o wide
 
-echo "==> 1. Verificando pods en el namespace ${NAMESPACE}"
-if kubectl get pods -n "${NAMESPACE}" | grep -v "Running" | grep -q -v "NAME"; then
-  echo "[ERROR] Hay pods que no estan en estado Running:"
-  kubectl get pods -n "${NAMESPACE}" | grep -v "Running" | grep -v "NAME"
-  ERRORS=$((ERRORS + 1))
-else
-  echo "[OK] Todos los pods estan Running"
-  kubectl get pods -n "${NAMESPACE}" -o wide
-fi
-echo ""
-
-echo "==> 2. Verificando servicios en el namespace ${NAMESPACE}"
-kubectl get svc -n "${NAMESPACE}"
-echo ""
-
-echo "==> 3. Verificando HPA"
-kubectl get hpa -n "${NAMESPACE}"
-echo ""
-
-echo "==> 4. Verificando LoadBalancer del frontend"
-FRONTEND_URL=$(kubectl get svc frontend -n "${NAMESPACE}" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
-if [ -n "$FRONTEND_URL" ]; then
-  echo "[OK] Frontend disponible en: http://${FRONTEND_URL}"
-  echo "     Health check:"
-  curl -s -o /dev/null -w "     HTTP Status: %{http_code}\n" "http://${FRONTEND_URL}" --max-time 10 || echo "     [WARN] No responde aun (puede estar aprovisionando el ELB)"
-else
-  echo "[WARN] LoadBalancer del frontend aun no tiene endpoint (puede tardar ~2 min)"
-fi
-echo ""
-
-echo "==> 5. Verificando health endpoints internos"
-echo "     Nota: Los health checks internos requieren port-forward"
-echo "     Para verificar manualmente:"
-echo "       kubectl port-forward svc/backend-ventas -n ${NAMESPACE} 8084:8084"
-echo "       curl http://localhost:8084/api/v1/ventas"
-echo ""
-
-if [ $ERRORS -eq 0 ]; then
-  echo "=========================================="
-  echo "  Validacion completada: TODO OK"
-  echo "=========================================="
-else
-  echo "=========================================="
-  echo "  Validacion completada: ${ERRORS} error(es)"
-  echo "=========================================="
+FAILED_PODS=$(kubectl get pods -n "${NAMESPACE}" --field-selector=status.phase!=Running,status.phase!=Succeeded --no-headers 2>/dev/null | wc -l | tr -d ' ')
+if [ "${FAILED_PODS}" -gt 0 ]; then
+  echo "ERROR: Hay pods que no están en estado Running."
+  kubectl get pods -n "${NAMESPACE}"
   exit 1
 fi
+
+echo ""
+echo "==> 2. Validando health checks internos (port-forward)..."
+check_internal() {
+  local deployment="$1"
+  local local_port="$2"
+  local container_port="$3"
+  local path="$4"
+
+  kubectl port-forward -n "${NAMESPACE}" "deployment/${deployment}" "${local_port}:${container_port}" &
+  local PF_PID=$!
+  sleep 5
+
+  local http_code
+  http_code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${local_port}${path}" || echo "000")
+  kill "${PF_PID}" 2>/dev/null || true
+  wait "${PF_PID}" 2>/dev/null || true
+
+  if [ "${http_code}" -ge 200 ] && [ "${http_code}" -lt 400 ]; then
+    echo "  OK  ${deployment}${path} -> HTTP ${http_code} (${local_port}:${container_port})"
+  else
+    echo "  FAIL ${deployment}${path} -> HTTP ${http_code}"
+    return 1
+  fi
+}
+
+check_internal backend-ventas 8084 8084 /api/v1/ventas
+check_internal backend-despachos 8085 8085 /api/v1/despachos
+check_internal frontend 8081 8081 /
+
+echo ""
+echo "==> 3. Esperando Load Balancer del frontend (max ${LB_TIMEOUT}s)..."
+LB_HOST=""
+while [ "${ELAPSED}" -lt "${LB_TIMEOUT}" ]; do
+  LB_HOST=$(kubectl get svc frontend -n "${NAMESPACE}" \
+    -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+  if [ -n "${LB_HOST}" ]; then
+    break
+  fi
+  sleep "${LB_INTERVAL}"
+  ELAPSED=$((ELAPSED + LB_INTERVAL))
+  echo "  Esperando LB... (${ELAPSED}s)"
+done
+
+if [ -z "${LB_HOST}" ]; then
+  echo "ADVERTENCIA: Load Balancer aun sin hostname. Validacion interna OK."
+  exit 0
+fi
+
+echo ""
+echo "==> 4. Frontend publico: http://${LB_HOST}"
+EXTERNAL_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "http://${LB_HOST}/" || echo "000")
+if [ "${EXTERNAL_CODE}" -ge 200 ] && [ "${EXTERNAL_CODE}" -lt 400 ]; then
+  echo "  OK  Frontend publico -> HTTP ${EXTERNAL_CODE}"
+else
+  echo "  FAIL Frontend publico -> HTTP ${EXTERNAL_CODE}"
+  exit 1
+fi
+
+echo ""
+echo "==> Validacion completada: commit -> build -> push -> deploy -> operativo."
